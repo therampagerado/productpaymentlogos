@@ -30,6 +30,12 @@ if (!defined('_TB_VERSION_')) {
 
 class ProductPaymentLogos extends Module
 {
+    public const CONFIG_IMAGE = 'PRODUCTPAYMENTLOGOS_IMG';
+    public const CONFIG_LINK = 'PRODUCTPAYMENTLOGOS_LINK';
+    public const CONFIG_TITLE = 'PRODUCTPAYMENTLOGOS_TITLE';
+    public const CONFIG_ALT = 'PRODUCTPAYMENTLOGOS_ALT';
+    public const DEFAULT_IMAGE = 'payment-logo.png';
+
     /**
      * @throws PrestaShopException
      */
@@ -58,9 +64,10 @@ class ProductPaymentLogos extends Module
      */
     public function install()
     {
-        Configuration::updateValue('PRODUCTPAYMENTLOGOS_IMG', 'payment-logo.png');
-        Configuration::updateValue('PRODUCTPAYMENTLOGOS_LINK', '');
-        Configuration::updateValue('PRODUCTPAYMENTLOGOS_TITLE', '');
+        Configuration::updateValue(static::CONFIG_IMAGE, static::DEFAULT_IMAGE);
+        Configuration::updateValue(static::CONFIG_LINK, $this->getDefaultTranslatedValues(''));
+        Configuration::updateValue(static::CONFIG_TITLE, $this->getDefaultTranslatedValues(''));
+        Configuration::updateValue(static::CONFIG_ALT, $this->getDefaultTranslatedValues(''));
 
         $this->_clearCache('productpaymentlogos.tpl');
 
@@ -74,9 +81,10 @@ class ProductPaymentLogos extends Module
      */
     public function uninstall()
     {
-        Configuration::deleteByName('PRODUCTPAYMENTLOGOS_IMG');
-        Configuration::deleteByName('PRODUCTPAYMENTLOGOS_LINK');
-        Configuration::deleteByName('PRODUCTPAYMENTLOGOS_TITLE');
+        Configuration::deleteByName(static::CONFIG_IMAGE);
+        Configuration::deleteByName(static::CONFIG_LINK);
+        Configuration::deleteByName(static::CONFIG_TITLE);
+        Configuration::deleteByName(static::CONFIG_ALT);
 
         return parent::uninstall();
     }
@@ -94,10 +102,12 @@ class ProductPaymentLogos extends Module
         }
 
         if (!$this->isCached('productpaymentlogos.tpl', $this->getCacheId())) {
+            $bannerData = $this->getBannerData();
             $this->smarty->assign([
-                'banner_img' => 'img/' . Configuration::get('PRODUCTPAYMENTLOGOS_IMG'),
-                'banner_link' => Configuration::get('PRODUCTPAYMENTLOGOS_LINK'),
-                'banner_title' => Configuration::get('PRODUCTPAYMENTLOGOS_TITLE')
+                'banner_img' => 'img/' . $bannerData['image'],
+                'banner_link' => $bannerData['link'],
+                'banner_title' => $bannerData['title'],
+                'banner_alt' => $bannerData['alt'],
             ]);
         }
 
@@ -113,7 +123,7 @@ class ProductPaymentLogos extends Module
             return;
         }
 
-        $this->context->controller->addCSS($this->_path . 'productpaymentlogos.css', 'all');
+        $this->context->controller->addCSS($this->_path . 'views/css/productpaymentlogos.css', 'all');
     }
 
     /**
@@ -131,37 +141,37 @@ class ProductPaymentLogos extends Module
     public function postProcess()
     {
         if (Tools::isSubmit('submitStoreConf')) {
-            Configuration::updateValue('PRODUCTPAYMENTLOGOS_LINK', Tools::getValue('PRODUCTPAYMENTLOGOS_LINK'));
-            Configuration::updateValue('PRODUCTPAYMENTLOGOS_TITLE', Tools::getValue('PRODUCTPAYMENTLOGOS_TITLE'));
-
             $uploadedFile = $_FILES['PRODUCTPAYMENTLOGOS_IMG'] ?? null;
+            $newFileName = null;
+            $oldFileName = $this->getConfiguredImageName();
 
             if ($uploadedFile && !empty($uploadedFile['tmp_name'])) {
                 $fileInfo = pathinfo($uploadedFile['name']);
-                $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+                $allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif'];
+                $extension = isset($fileInfo['extension']) ? Tools::strtolower((string) $fileInfo['extension']) : '';
 
-                if (!in_array(strtolower($fileInfo['extension']), $allowedExtensions)) {
-                    return $this->displayError($this->l('Invalid image format. Supported formats: JPG, JPEG, PNG, GIF, WebP.'));
+                if (!$extension || !in_array($extension, $allowedExtensions, true)) {
+                    return $this->displayError($this->l('Invalid image format. Supported formats: JPG, JPEG, PNG, GIF, WebP, AVIF.'));
                 }
 
-                $fileName = md5($uploadedFile['name']) . '.' . $fileInfo['extension'];
-                $filePath = dirname(__FILE__) . '/img/' . $fileName;
+                $newFileName = sha1($uploadedFile['name'] . '-' . uniqid('', true)) . '.' . $extension;
+                $filePath = dirname(__FILE__) . '/img/' . $newFileName;
 
                 if (!move_uploaded_file($uploadedFile['tmp_name'], $filePath)) {
                     return $this->displayError($this->l('An error occurred while attempting to upload the file.'));
                 }
-
-                // Remove old image if exists
-                $oldFileName = Configuration::get('PRODUCTPAYMENTLOGOS_IMG');
-                $oldFilePath = dirname(__FILE__) . '/img/' . $oldFileName;
-                if ($oldFileName && file_exists($oldFilePath)) {
-                    unlink($oldFilePath);
-                }
-
-                Configuration::updateValue('PRODUCTPAYMENTLOGOS_IMG', $fileName);
-                $this->_clearCache('productpaymentlogos.tpl');
             }
 
+            Configuration::updateValue(static::CONFIG_LINK, $this->getTranslatedValuesFromRequest(static::CONFIG_LINK));
+            Configuration::updateValue(static::CONFIG_TITLE, $this->getTranslatedValuesFromRequest(static::CONFIG_TITLE));
+            Configuration::updateValue(static::CONFIG_ALT, $this->getTranslatedValuesFromRequest(static::CONFIG_ALT));
+
+            if ($newFileName !== null) {
+                Configuration::updateValue(static::CONFIG_IMAGE, $newFileName);
+                $this->deleteImageFileIfUnused($oldFileName, $newFileName);
+            }
+
+            $this->_clearCache('productpaymentlogos.tpl');
             Tools::redirectAdmin('index.php?tab=AdminModules&conf=6&configure=' . $this->name . '&token=' . Tools::getAdminTokenLite('AdminModules'));
         }
 
@@ -184,20 +194,32 @@ class ProductPaymentLogos extends Module
                     [
                         'type' => 'text',
                         'label' => $this->l('Block heading'),
-                        'name' => 'PRODUCTPAYMENTLOGOS_TITLE',
+                        'name' => static::CONFIG_TITLE,
+                        'lang' => true,
+                        'maxlength' => 120,
                         'desc' => $this->l('You can choose to add a heading above the logos.')
                     ],
                     [
                         'type' => 'file',
                         'label' => $this->l('Block image'),
-                        'name' => 'PRODUCTPAYMENTLOGOS_IMG',
-                        'thumb' => '../modules/' . $this->name . '/img/' . Configuration::get('PRODUCTPAYMENTLOGOS_IMG'),
+                        'name' => static::CONFIG_IMAGE,
+                        'thumb' => '../modules/' . $this->name . '/img/' . $this->getConfiguredImageName(),
+                    ],
+                    [
+                        'type' => 'text',
+                        'label' => $this->l('Image alt text'),
+                        'name' => static::CONFIG_ALT,
+                        'lang' => true,
+                        'maxlength' => 120,
+                        'desc' => $this->l('Describe the uploaded logos for screen readers. If left empty, the block heading is used.')
                     ],
                     [
                         'type' => 'text',
                         'label' => $this->l('Image link'),
-                        'name' => 'PRODUCTPAYMENTLOGOS_LINK',
-                        'desc' => $this->l('You can either upload your own image using the form above, or link to it from the "Image link" option.')
+                        'name' => static::CONFIG_LINK,
+                        'lang' => true,
+                        'maxlength' => 255,
+                        'desc' => $this->l('Set a different destination URL for each language if needed.')
                     ]
                 ],
                 'submit' => [
@@ -233,9 +255,162 @@ class ProductPaymentLogos extends Module
     public function getConfigFieldsValues()
     {
         return [
-            'PRODUCTPAYMENTLOGOS_IMG' => Tools::getValue('PRODUCTPAYMENTLOGOS_IMG', Configuration::get('PRODUCTPAYMENTLOGOS_IMG')),
-            'PRODUCTPAYMENTLOGOS_LINK' => Tools::getValue('PRODUCTPAYMENTLOGOS_LINK', Configuration::get('PRODUCTPAYMENTLOGOS_LINK')),
-            'PRODUCTPAYMENTLOGOS_TITLE' => Tools::getValue('PRODUCTPAYMENTLOGOS_TITLE', Configuration::get('PRODUCTPAYMENTLOGOS_TITLE')),
+            static::CONFIG_IMAGE => Tools::getValue(static::CONFIG_IMAGE, $this->getConfiguredImageName()),
+            static::CONFIG_LINK => $this->getTranslatedFieldValues(static::CONFIG_LINK),
+            static::CONFIG_TITLE => $this->getTranslatedFieldValues(static::CONFIG_TITLE),
+            static::CONFIG_ALT => $this->getTranslatedFieldValues(static::CONFIG_ALT),
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     * @throws PrestaShopException
+     */
+    protected function getBannerData()
+    {
+        $title = $this->getTranslatedConfigValue(static::CONFIG_TITLE);
+        $alt = $this->getTranslatedConfigValue(static::CONFIG_ALT);
+        if ($alt === '') {
+            $alt = $title;
+        }
+        if ($alt === '') {
+            $alt = $this->l('Available payment methods');
+        }
+
+        return [
+            'image' => $this->getConfiguredImageName(),
+            'link' => $this->getTranslatedConfigValue(static::CONFIG_LINK),
+            'title' => $title,
+            'alt' => $alt,
+        ];
+    }
+
+    /**
+     * @return string
+     * @throws PrestaShopException
+     */
+    protected function getConfiguredImageName()
+    {
+        $fileName = basename((string) Configuration::get(static::CONFIG_IMAGE));
+        if ($fileName === '' || !$this->imageFileExists($fileName)) {
+            return static::DEFAULT_IMAGE;
+        }
+
+        return $fileName;
+    }
+
+    /**
+     * @param string $value
+     *
+     * @return array<int, string>
+     * @throws PrestaShopException
+     */
+    protected function getDefaultTranslatedValues($value)
+    {
+        $values = [];
+        foreach (Language::getLanguages(false) as $language) {
+            $values[(int) $language['id_lang']] = (string) $value;
+        }
+
+        return $values;
+    }
+
+    /**
+     * @param string $key
+     *
+     * @return array<int, string>
+     * @throws PrestaShopException
+     */
+    protected function getTranslatedFieldValues($key)
+    {
+        $values = [];
+        foreach (Language::getLanguages(false) as $language) {
+            $idLang = (int) $language['id_lang'];
+            $values[$idLang] = (string) Tools::getValue(
+                $key . '_' . $idLang,
+                $this->getTranslatedConfigValue($key, $idLang)
+            );
+        }
+
+        return $values;
+    }
+
+    /**
+     * @param string $key
+     *
+     * @return array<int, string>
+     * @throws PrestaShopException
+     */
+    protected function getTranslatedValuesFromRequest($key)
+    {
+        $values = [];
+        foreach (Language::getLanguages(false) as $language) {
+            $idLang = (int) $language['id_lang'];
+            $values[$idLang] = trim((string) Tools::getValue($key . '_' . $idLang, ''));
+        }
+
+        return $values;
+    }
+
+    /**
+     * @param string $key
+     * @param int|null $idLang
+     *
+     * @return string
+     * @throws PrestaShopException
+     */
+    protected function getTranslatedConfigValue($key, $idLang = null)
+    {
+        $idLang = (int) ($idLang ?: $this->context->language->id);
+        $value = Configuration::get($key, $idLang);
+        if ($value === false && $idLang !== (int) Configuration::get('PS_LANG_DEFAULT')) {
+            $value = Configuration::get($key, (int) Configuration::get('PS_LANG_DEFAULT'));
+        }
+        if ($value === false) {
+            $value = Configuration::get($key);
+        }
+
+        return $value === false ? '' : (string) $value;
+    }
+
+    /**
+     * @param string $fileName
+     *
+     * @return bool
+     */
+    protected function imageFileExists($fileName)
+    {
+        return file_exists(dirname(__FILE__) . '/img/' . $fileName);
+    }
+
+    /**
+     * @param string $oldFileName
+     * @param string $newFileName
+     *
+     * @throws PrestaShopException
+     */
+    protected function deleteImageFileIfUnused($oldFileName, $newFileName)
+    {
+        $oldFileName = basename((string) $oldFileName);
+        if (
+            $oldFileName === ''
+            || $oldFileName === static::DEFAULT_IMAGE
+            || $oldFileName === basename((string) $newFileName)
+        ) {
+            return;
+        }
+
+        $inUse = (int) Db::readOnly()->getValue(
+            (new DbQuery())
+                ->select('COUNT(*)')
+                ->from('configuration')
+                ->where('`name` = \'' . pSQL(static::CONFIG_IMAGE) . '\'')
+                ->where('`value` = \'' . pSQL($oldFileName) . '\'')
+        );
+
+        $oldFilePath = dirname(__FILE__) . '/img/' . $oldFileName;
+        if ($inUse === 0 && file_exists($oldFilePath)) {
+            unlink($oldFilePath);
+        }
     }
 }
