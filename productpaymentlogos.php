@@ -108,6 +108,8 @@ class ProductPaymentLogos extends Module
                 'banner_link' => $bannerData['link'],
                 'banner_title' => $bannerData['title'],
                 'banner_alt' => $bannerData['alt'],
+                'banner_width' => $bannerData['width'],
+                'banner_height' => $bannerData['height'],
             ]);
         }
 
@@ -263,12 +265,13 @@ class ProductPaymentLogos extends Module
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, int|string|null>
      * @throws PrestaShopException
      */
     protected function getBannerData()
     {
         $title = $this->getTranslatedConfigValue(static::CONFIG_TITLE);
+        $image = $this->getConfiguredImageName();
         $alt = $this->getTranslatedConfigValue(static::CONFIG_ALT);
         if ($alt === '') {
             $alt = $title;
@@ -276,12 +279,15 @@ class ProductPaymentLogos extends Module
         if ($alt === '') {
             $alt = $this->l('Available payment methods');
         }
+        $dimensions = $this->getImageDimensions($image);
 
         return [
-            'image' => $this->getConfiguredImageName(),
+            'image' => $image,
             'link' => $this->getTranslatedConfigValue(static::CONFIG_LINK),
             'title' => $title,
             'alt' => $alt,
+            'width' => $dimensions['width'],
+            'height' => $dimensions['height'],
         ];
     }
 
@@ -381,6 +387,35 @@ class ProductPaymentLogos extends Module
     protected function imageFileExists($fileName)
     {
         return file_exists(dirname(__FILE__) . '/img/' . $fileName);
+    }
+
+    /**
+     * @param string $fileName
+     *
+     * @return array<string, int|null>
+     */
+    protected function getImageDimensions($fileName)
+    {
+        $imagePath = dirname(__FILE__) . '/img/' . basename((string) $fileName);
+        if (!is_file($imagePath) || !is_readable($imagePath) || !function_exists('getimagesize')) {
+            return [
+                'width' => null,
+                'height' => null,
+            ];
+        }
+
+        $dimensions = @getimagesize($imagePath);
+        if (!is_array($dimensions) || empty($dimensions[0]) || empty($dimensions[1])) {
+            return [
+                'width' => null,
+                'height' => null,
+            ];
+        }
+
+        return [
+            'width' => (int) $dimensions[0],
+            'height' => (int) $dimensions[1],
+        ];
     }
 
     /**

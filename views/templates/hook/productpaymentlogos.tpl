@@ -27,7 +27,7 @@
 	<div class="box-security">
     {if $banner_title != ''}<h5 class="product-heading-h5">{$banner_title|escape:'htmlall':'UTF-8'}</h5>{/if}
   	{if $banner_link != ''}<a href="{$banner_link|escape:'htmlall':'UTF-8'}" title="{$banner_alt|escape:'htmlall':'UTF-8'}">{/if}
-		<img src="{$module_dir}{$banner_img|escape:'htmlall':'UTF-8'}" alt="{$banner_alt|escape:'htmlall':'UTF-8'}" class="img-responsive" />
+		<img src="{$module_dir}{$banner_img|escape:'htmlall':'UTF-8'}" alt="{$banner_alt|escape:'htmlall':'UTF-8'}" class="img-responsive"{if $banner_width} width="{$banner_width|intval}"{/if}{if $banner_height} height="{$banner_height|intval}"{/if} />
 	{if $banner_link != ''}</a>{/if}
     </div>
 </div>
