@@ -31,10 +31,14 @@ if (!defined('_TB_VERSION_')) {
 class ProductPaymentLogos extends Module
 {
     public const CONFIG_IMAGE = 'PRODUCTPAYMENTLOGOS_IMG';
+    public const CONFIG_IMAGE_WIDTH = 'PRODUCTPAYMENTLOGOS_IMG_WIDTH';
+    public const CONFIG_IMAGE_HEIGHT = 'PRODUCTPAYMENTLOGOS_IMG_HEIGHT';
     public const CONFIG_LINK = 'PRODUCTPAYMENTLOGOS_LINK';
     public const CONFIG_TITLE = 'PRODUCTPAYMENTLOGOS_TITLE';
     public const CONFIG_ALT = 'PRODUCTPAYMENTLOGOS_ALT';
     public const DEFAULT_IMAGE = 'payment-logo.png';
+    public const DEFAULT_IMAGE_WIDTH = 233;
+    public const DEFAULT_IMAGE_HEIGHT = 60;
 
     /**
      * @throws PrestaShopException
@@ -65,6 +69,8 @@ class ProductPaymentLogos extends Module
     public function install()
     {
         Configuration::updateValue(static::CONFIG_IMAGE, static::DEFAULT_IMAGE);
+        Configuration::updateValue(static::CONFIG_IMAGE_WIDTH, static::DEFAULT_IMAGE_WIDTH);
+        Configuration::updateValue(static::CONFIG_IMAGE_HEIGHT, static::DEFAULT_IMAGE_HEIGHT);
         Configuration::updateValue(static::CONFIG_LINK, $this->getDefaultTranslatedValues(''));
         Configuration::updateValue(static::CONFIG_TITLE, $this->getDefaultTranslatedValues(''));
         Configuration::updateValue(static::CONFIG_ALT, $this->getDefaultTranslatedValues(''));
@@ -82,6 +88,8 @@ class ProductPaymentLogos extends Module
     public function uninstall()
     {
         Configuration::deleteByName(static::CONFIG_IMAGE);
+        Configuration::deleteByName(static::CONFIG_IMAGE_WIDTH);
+        Configuration::deleteByName(static::CONFIG_IMAGE_HEIGHT);
         Configuration::deleteByName(static::CONFIG_LINK);
         Configuration::deleteByName(static::CONFIG_TITLE);
         Configuration::deleteByName(static::CONFIG_ALT);
@@ -145,6 +153,7 @@ class ProductPaymentLogos extends Module
         if (Tools::isSubmit('submitStoreConf')) {
             $uploadedFile = $_FILES['PRODUCTPAYMENTLOGOS_IMG'] ?? null;
             $newFileName = null;
+            $newDimensions = null;
             $oldFileName = $this->getConfiguredImageName();
 
             if ($uploadedFile && !empty($uploadedFile['tmp_name'])) {
@@ -162,6 +171,8 @@ class ProductPaymentLogos extends Module
                 if (!move_uploaded_file($uploadedFile['tmp_name'], $filePath)) {
                     return $this->displayError($this->l('An error occurred while attempting to upload the file.'));
                 }
+
+                $newDimensions = $this->detectImageDimensionsFromFile($filePath);
             }
 
             Configuration::updateValue(static::CONFIG_LINK, $this->getTranslatedValuesFromRequest(static::CONFIG_LINK));
@@ -170,6 +181,8 @@ class ProductPaymentLogos extends Module
 
             if ($newFileName !== null) {
                 Configuration::updateValue(static::CONFIG_IMAGE, $newFileName);
+                Configuration::updateValue(static::CONFIG_IMAGE_WIDTH, (int) $newDimensions['width']);
+                Configuration::updateValue(static::CONFIG_IMAGE_HEIGHT, (int) $newDimensions['height']);
                 $this->deleteImageFileIfUnused($oldFileName, $newFileName);
             }
 
@@ -206,6 +219,24 @@ class ProductPaymentLogos extends Module
                         'label' => $this->l('Block image'),
                         'name' => static::CONFIG_IMAGE,
                         'thumb' => '../modules/' . $this->name . '/img/' . $this->getConfiguredImageName(),
+                    ],
+                    [
+                        'type' => 'text',
+                        'label' => $this->l('Image width'),
+                        'name' => static::CONFIG_IMAGE_WIDTH,
+                        'readonly' => true,
+                        'class' => 'fixed-width-sm',
+                        'suffix' => 'px',
+                        'desc' => $this->l('Detected image width in pixels.')
+                    ],
+                    [
+                        'type' => 'text',
+                        'label' => $this->l('Image height'),
+                        'name' => static::CONFIG_IMAGE_HEIGHT,
+                        'readonly' => true,
+                        'class' => 'fixed-width-sm',
+                        'suffix' => 'px',
+                        'desc' => $this->l('Detected image height in pixels.')
                     ],
                     [
                         'type' => 'text',
@@ -258,6 +289,8 @@ class ProductPaymentLogos extends Module
     {
         return [
             static::CONFIG_IMAGE => Tools::getValue(static::CONFIG_IMAGE, $this->getConfiguredImageName()),
+            static::CONFIG_IMAGE_WIDTH => Tools::getValue(static::CONFIG_IMAGE_WIDTH, $this->getConfiguredImageWidth()),
+            static::CONFIG_IMAGE_HEIGHT => Tools::getValue(static::CONFIG_IMAGE_HEIGHT, $this->getConfiguredImageHeight()),
             static::CONFIG_LINK => $this->getTranslatedFieldValues(static::CONFIG_LINK),
             static::CONFIG_TITLE => $this->getTranslatedFieldValues(static::CONFIG_TITLE),
             static::CONFIG_ALT => $this->getTranslatedFieldValues(static::CONFIG_ALT),
@@ -279,15 +312,13 @@ class ProductPaymentLogos extends Module
         if ($alt === '') {
             $alt = $this->l('Available payment methods');
         }
-        $dimensions = $this->getImageDimensions($image);
-
         return [
             'image' => $image,
             'link' => $this->getTranslatedConfigValue(static::CONFIG_LINK),
             'title' => $title,
             'alt' => $alt,
-            'width' => $dimensions['width'],
-            'height' => $dimensions['height'],
+            'width' => $this->getConfiguredImageWidth(),
+            'height' => $this->getConfiguredImageHeight(),
         ];
     }
 
@@ -303,6 +334,34 @@ class ProductPaymentLogos extends Module
         }
 
         return $fileName;
+    }
+
+    /**
+     * @return int|null
+     * @throws PrestaShopException
+     */
+    protected function getConfiguredImageWidth()
+    {
+        $width = (int) Configuration::get(static::CONFIG_IMAGE_WIDTH);
+        if ($width > 0) {
+            return $width;
+        }
+
+        return $this->getConfiguredImageName() === static::DEFAULT_IMAGE ? static::DEFAULT_IMAGE_WIDTH : null;
+    }
+
+    /**
+     * @return int|null
+     * @throws PrestaShopException
+     */
+    protected function getConfiguredImageHeight()
+    {
+        $height = (int) Configuration::get(static::CONFIG_IMAGE_HEIGHT);
+        if ($height > 0) {
+            return $height;
+        }
+
+        return $this->getConfiguredImageName() === static::DEFAULT_IMAGE ? static::DEFAULT_IMAGE_HEIGHT : null;
     }
 
     /**
@@ -390,21 +449,20 @@ class ProductPaymentLogos extends Module
     }
 
     /**
-     * @param string $fileName
+     * @param string $filePath
      *
      * @return array<string, int|null>
      */
-    protected function getImageDimensions($fileName)
+    protected function detectImageDimensionsFromFile($filePath)
     {
-        $imagePath = dirname(__FILE__) . '/img/' . basename((string) $fileName);
-        if (!is_file($imagePath) || !is_readable($imagePath) || !function_exists('getimagesize')) {
+        if (!is_file($filePath) || !is_readable($filePath) || !function_exists('getimagesize')) {
             return [
                 'width' => null,
                 'height' => null,
             ];
         }
 
-        $dimensions = @getimagesize($imagePath);
+        $dimensions = @getimagesize($filePath);
         if (!is_array($dimensions) || empty($dimensions[0]) || empty($dimensions[1])) {
             return [
                 'width' => null,
